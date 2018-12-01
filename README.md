@@ -28,7 +28,9 @@ Generates melspec from file.wav the following files:
 
 `--overlap_ratio 3` means 1/3 overlap between 2 windows. With the above parameters, the png generated are square png 128x128 pixels.
 
-```python3 build-wav-from-melspec.py --in_file file_spectrogram_bw.png --param_file file_params.txt --out_file file_rebuild.wav --iterations 1000```
+```
+python3 build-wav-from-melspec.py --in_file file_spectrogram_bw.png --param_file file_params.txt --out_file file_rebuild.wav --iterations 1000
+```
 
 Applies 1000 iterations of Griffin-Lim parameters then denormalize the signal using parameters from `file_params.txt` to restore original wav file. `in_file` can either be black and white and color png.
 
