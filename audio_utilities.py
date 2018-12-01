@@ -8,11 +8,11 @@ import numpy as np
 import wave
 import scipy
 import scipy.signal
-from pylab import *
 import array
 import os
 from os.path import expanduser
 import scipy.io.wavfile
+from numpy.lib import stride_tricks
 
 # Author: Brian K. Vogel
 # brian.vogel@gmail.com
@@ -77,7 +77,7 @@ def hz_to_fft_bin(f_hz, sample_rate_hz, fft_size):
     fft_size = float(fft_size)
     fft_bin = int(np.round((f_hz*2.0*fft_size/sample_rate_hz)))
     if fft_bin >= fft_size:
-        fft_bin = fft_size-1
+        fft_bin = int(fft_size-1)
     return fft_bin
 
 
@@ -181,6 +181,50 @@ def make_mel_filterbank(min_freq_hz, max_freq_hz, mel_bin_count,
     return  filterbank
 
 
+def logscale_spec(spec, sr=44100, factor=20.):
+    timebins, freqbins = np.shape(spec)
+
+    scale = np.linspace(0, 1, freqbins) ** factor
+    scale *= (freqbins-1)/max(scale)
+    scale = np.unique(np.round(scale))
+    
+    # create spectrogram with new freq bins
+    newspec = np.complex128(np.zeros([timebins, len(scale)]))
+    for i in range(0, len(scale)):
+        if i == len(scale)-1:
+            newspec[:,i] = np.sum(spec[:,int(scale[i]):], axis=1)
+        else:        
+            newspec[:,i] = np.sum(spec[:,int(scale[i]):int(scale[i+1])], axis=1)
+    
+    # list center freq of bins
+    allfreqs = np.abs(np.fft.fftfreq(freqbins*2, 1./sr)[:freqbins+1])
+    freqs = []
+    for i in range(0, len(scale)):
+        if i == len(scale)-1:
+            freqs += [np.mean(allfreqs[int(scale[i]):])]
+        else:
+            freqs += [np.mean(allfreqs[int(scale[i]):int(scale[i+1])])]
+    
+    return newspec, freqs
+
+
+def stft(sig, frameSize, overlapFac=0.5, window=np.hanning):
+    win = window(frameSize)
+    hopSize = int(frameSize - np.floor(overlapFac * frameSize))
+    
+    # zeros at beginning (thus center of 1st window should be for sample nr. 0)
+    samples = np.append(np.zeros(int(np.floor(frameSize/2.0))), sig)    
+    # cols for windowing
+    cols = int(np.ceil( (len(samples) - frameSize) / float(hopSize)) + 1)
+    # zeros at end (thus samples can be fully covered by frames)
+    samples = np.append(samples, np.zeros(frameSize))
+    
+    frames = stride_tricks.as_strided(samples, shape=(cols, frameSize), strides=(samples.strides[0]*hopSize, samples.strides[0])).copy()
+    frames *= win
+    
+    return np.fft.rfft(frames)    
+
+
 def stft_for_reconstruction(x, fft_size, hopsamp):
     """Compute and return the STFT of the supplied time domain signal x.
 
@@ -195,6 +239,7 @@ def stft_for_reconstruction(x, fft_size, hopsamp):
     window = np.hanning(fft_size)
     fft_size = int(fft_size)
     hopsamp = int(hopsamp)
+
     return np.array([np.fft.rfft(window*x[i:i+fft_size])
                      for i in range(0, len(x)-fft_size, hopsamp)])
 
@@ -239,6 +284,7 @@ def get_signal(in_file, expected_fs=44100):
     """
     fs, y = scipy.io.wavfile.read(in_file)
     num_type = y[0].dtype
+
     if num_type == 'int16':
         y = y*(1.0/32768)
     elif num_type == 'int32':
@@ -290,8 +336,8 @@ def reconstruct_signal_griffin_lim(magnitude_spectrogram, fft_size, hopsamp, ite
         proposal_spectrogram = magnitude_spectrogram*np.exp(1.0j*reconstruction_angle)
         prev_x = x_reconstruct
         x_reconstruct = istft_for_reconstruction(proposal_spectrogram, fft_size, hopsamp)
-        diff = sqrt(sum((x_reconstruct - prev_x)**2)/x_reconstruct.size)
-        print('Reconstruction iteration: {}/{} RMSE: {} '.format(iterations - n, iterations, diff))
+        diff = math.sqrt(sum((x_reconstruct - prev_x)**2)/x_reconstruct.size)
+    print('Reconstruction RMSE: {} '.format(diff))
     return x_reconstruct
 
 
